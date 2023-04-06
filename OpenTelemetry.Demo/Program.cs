@@ -1,13 +1,22 @@
-var builder = WebApplication.CreateBuilder(args);
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using System.Diagnostics;
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var app = builder.Build();
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracerProviderBuilder =>
+        tracerProviderBuilder
+            .AddSource(DiagnosticsConfig.ActivitySource.Name)
+            .ConfigureResource(resource => resource.AddService(DiagnosticsConfig.ServiceName))
+            .AddAspNetCoreInstrumentation()
+            .AddConsoleExporter());
 
-// Configure the HTTP request pipeline.
+WebApplication app = builder.Build();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -16,14 +25,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
+string[] summaries = new[]
 {
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
 };
 
 app.MapGet("/weatherforecast", () =>
 {
-    var forecast = Enumerable.Range(1, 5).Select(index =>
+    WeatherForecast[] forecast = Enumerable.Range(1, 5).Select(index =>
         new WeatherForecast
         (
             DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
@@ -31,6 +40,11 @@ app.MapGet("/weatherforecast", () =>
             summaries[Random.Shared.Next(summaries.Length)]
         ))
         .ToArray();
+
+    using Activity? activity = DiagnosticsConfig.ActivitySource.StartActivity("weatherforecast triggered");
+    activity?.SetTag("response", forecast);
+    activity?.SetTag("rnd", forecast.First().TemperatureF);
+
     return forecast;
 })
 .WithName("GetWeatherForecast")
@@ -41,4 +55,11 @@ app.Run();
 internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
     public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+}
+
+
+public static class DiagnosticsConfig
+{
+    public const string ServiceName = "MyService";
+    public static ActivitySource ActivitySource = new ActivitySource(ServiceName);
 }
