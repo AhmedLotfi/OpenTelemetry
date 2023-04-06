@@ -1,3 +1,4 @@
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using System.Diagnostics;
@@ -6,14 +7,38 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddOpenTelemetry()
+    .WithTracing(b =>
+    {
+        b.AddZipkinExporter(o =>
+        {
+            o.Endpoint = new Uri(builder.Configuration.GetValue<string>("zipkin:url")!);
+        })
+        .AddSource(DiagnosticsConfig.ActivitySource.Name)
+        .ConfigureResource(resource => resource.AddService(DiagnosticsConfig.ServiceName))
+        .AddAspNetCoreInstrumentation();
+    });
 
+/*   --------------ConsoleExporter
+builder.Services.AddOpenTelemetry()
+  .WithMetrics(b => b.AddPrometheusExporter()); */
+
+/*   --------------ConsoleExporter
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracerProviderBuilder =>
         tracerProviderBuilder
             .AddSource(DiagnosticsConfig.ActivitySource.Name)
             .ConfigureResource(resource => resource.AddService(DiagnosticsConfig.ServiceName))
             .AddAspNetCoreInstrumentation()
-            .AddConsoleExporter());
+            .AddConsoleExporter())
+    .WithMetrics(metricsProviderBuilder =>
+        metricsProviderBuilder
+            .ConfigureResource(resource => resource
+                .AddService(DiagnosticsConfig.ServiceName))
+            .AddAspNetCoreInstrumentation()
+            .AddConsoleExporter());*/
+
+
 
 WebApplication app = builder.Build();
 
@@ -50,7 +75,7 @@ app.MapGet("/weatherforecast", () =>
 .WithName("GetWeatherForecast")
 .WithOpenApi();
 
-app.Run();
+await app.RunAsync();
 
 internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
